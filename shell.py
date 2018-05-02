@@ -13,7 +13,7 @@ def get_config():
         optlist, args = getopt.getopt(sys.argv[1:], shortopts, longopts)
         for key, value in optlist:
             if key == '-p':
-                config['port'] = value
+                config['port'] = int(value)
             elif key == '-u':
                 config['user'] = value
             elif key == '-k':
