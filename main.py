@@ -4,7 +4,7 @@
 import sys
 import shell
 import controller
-# import eventloop
+import eventloop
 # import tcprelay
 
 
@@ -14,11 +14,12 @@ def main():
 
     try:
         tcp_server = controller.Controller(config)
-        # loop = eventloop.Eventloop()
+        loop = eventloop.EventLoop()
     except Exception as e:
         print(e)
         sys.exit(0)
 
+    loop.run()
 
 
 if __name__ == '__main__':
