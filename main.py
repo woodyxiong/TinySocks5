@@ -15,6 +15,7 @@ def main():
     try:
         tcp_server = controller.Controller(config)
         loop = eventloop.EventLoop()
+        tcp_server.add_to_loop(loop)
     except Exception as e:
         print(e)
         sys.exit(0)

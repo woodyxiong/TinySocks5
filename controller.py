@@ -2,6 +2,7 @@
 # -*- coding: UTF-8 -*-
 
 import socket
+import eventloop
 
 
 class Controller(object):
@@ -17,5 +18,5 @@ class Controller(object):
         if self._eventloop:
             raise Exception("already add to loop")
         self._eventloop = loop
-        # self._eventloop.add(self.server_socket)
+        self._eventloop.add(self.server_socket, self)
 

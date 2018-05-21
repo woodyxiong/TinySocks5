@@ -1,7 +1,6 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
 
-import socket
 import select
 
 
@@ -30,17 +29,25 @@ class EventLoop(object):
         elif hasattr(select, 'select'):
             self._impl = SelectLoop()
             self._model = 'select'
+        self._fdmap = {} #[fd](f,handler)
 
     def poll(self):
         events = self._impl.poll(timeout=None)
+        print(events)
+
 
     def stop(self):
         self._isstopping = True
+
+    def add(self, f, handler):
+        fd = f.fileno()
+        self._fdmap[fd] = (f, handler)
 
     def run(self):
         events=[]
         while not self._isstopping:
             try:
-                events = self.poll
+                self.poll()
+
             except Exception as e:
                 print(e)
