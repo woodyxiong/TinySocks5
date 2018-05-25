@@ -12,8 +12,14 @@ class SelectLoop(object):
 
     def poll(self, timeout=None):
         r, w, x = select.select(self._r_list, self._w_list, self._x_list)
-        for result in r:
-            return result
+        result = []
+        for res in r:
+            t = (res, 1)
+            result.append(t)
+        return result
+
+    def register(self, fd):
+        self._r_list.add(fd)
 
 
 
@@ -33,8 +39,12 @@ class EventLoop(object):
 
     def poll(self):
         events = self._impl.poll(timeout=None)
-        print(events)
-
+        result = []
+        for item in events:
+            t = (item[0], self._fdmap[item[0]][0], item[1])
+            result.append(t)
+        return result
+        # [(768, <socket._socketobject object at 0x05ABEA78>)]
 
     def stop(self):
         self._isstopping = True
@@ -42,12 +52,20 @@ class EventLoop(object):
     def add(self, f, handler):
         fd = f.fileno()
         self._fdmap[fd] = (f, handler)
+        self._impl.register(fd)
 
     def run(self):
-        events=[]
+        events = []
         while not self._isstopping:
             try:
-                self.poll()
-
+                events = self.poll()
             except Exception as e:
                 print(e)
+
+            for fd, sock, event in events:
+                handler = self._fdmap[fd][1]
+                try:
+                    # 转入控制器
+                    handler.handle_event(sock, fd, event)
+                except (OSError, IOError) as e:
+                    print(e)

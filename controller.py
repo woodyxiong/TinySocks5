@@ -20,3 +20,5 @@ class Controller(object):
         self._eventloop = loop
         self._eventloop.add(self.server_socket, self)
 
+    def handle_event(self, sock, fd, event):
+        print(fd)

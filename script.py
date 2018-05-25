@@ -1,10 +1,11 @@
+# -*- coding: UTF-8 -*-
 #使用socket模拟多线程，使多用户可以同时连接
 import socket
 import select
 
 sk1 = socket.socket()
 sk1.bind(('0.0.0.0', 8001))
-sk1.listen()
+sk1.listen(1024)
 
 inputs = [sk1, ]
 outputs = []
@@ -29,7 +30,7 @@ while True:
                 # 如果用户终止连接
                 inputs.remove(sk1_or_conn)
             else:
-                data_str = str(data_bytes, encoding='utf-8')
+                data_str = str(data_bytes)
                 message_dict[sk1_or_conn].append(data_str)
                 outputs.append(sk1_or_conn)
 
@@ -37,7 +38,7 @@ while True:
     for conn in w_list:
         recv_str = message_dict[conn][0]
         del message_dict[conn][0]
-        conn.sendall(bytes(recv_str+'好', encoding='utf-8'))
+        conn.sendall(bytes(recv_str+'好'))
         outputs.remove(conn)
 
     for sk in e_list:
