@@ -66,6 +66,6 @@ class EventLoop(object):
                 handler = self._fdmap[fd][1]
                 try:
                     # 转入控制器
-                    handler.handle_event(sock, fd, event)
+                    handler.handle_event(sock, event)
                 except (OSError, IOError) as e:
                     print(e)

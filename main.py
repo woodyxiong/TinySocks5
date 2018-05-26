@@ -5,8 +5,6 @@ import sys
 import shell
 import controller
 import eventloop
-# import tcprelay
-
 
 def main():
     # 获取配置
