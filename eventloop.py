@@ -21,6 +21,9 @@ class SelectLoop(object):
     def register(self, fd):
         self._r_list.add(fd)
 
+    def unregister(self, fd):
+        self._r_list.remove(fd)
+
 
 
 class EventLoop(object):
@@ -54,11 +57,17 @@ class EventLoop(object):
         self._fdmap[fd] = (f, handler)
         self._impl.register(fd)
 
+    def remove(self, f, handler):
+        fd = f.fileno()
+        del self._fdmap[fd]
+        self._impl.unregister(fd)
+
     def run(self):
         events = []
         while not self._isstopping:
             try:
                 events = self.poll()
+                print("233")
             except Exception as e:
                 print(e)
 

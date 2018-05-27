@@ -70,11 +70,12 @@ class Tcprelay(object):
         if self.write_to_sock(b'\x05\00', self._local_sock):
             self._stage = STAGE_ADDR
 
-    # 解析ip和port
+    # 解析ip/域名和port
     def parse_addr(self, data):
-        ip = data[2:16]
-        port = ord(data[17:])
-        result = (ip, port)
+        length = ord(data[1])
+        addr = data[2:length+2]
+        port = ord(data[length+2:length+3])*256+ord(data[length+3:])
+        result = (addr, port)
         return result
 
     # 创建远程连接
@@ -85,7 +86,6 @@ class Tcprelay(object):
 
     # 与remote_sock连接
     def handle_stage_addr(self, data):
-        # cmd = int(data[1])
         cmd = data[1]
         cmd = ord(cmd) #string转int
         if cmd == CMD_CONNECT:
@@ -106,16 +106,34 @@ class Tcprelay(object):
 
     # 已经连接上，转发信息
     def handle_stage_connecting(self, data):
-        self.write_to_sock(data, self._remote_sock)
+        if data:
+            self.write_to_sock(data, self._remote_sock)
+        else:
+            self.destroy()
 
     # 发送
     def write_to_sock(self, data, sock):
         sock.send(data)
         return True
 
+    # 接收到remote发送的信息
     def on_remote_read(self):
         if not self._remote_sock:
             return
         data = self._remote_sock.recv(BUF_SIZE)
-        print(data)
-        self.write_to_sock(data, self._local_sock)
+        if data:
+            self.write_to_sock(data, self._local_sock)
+        else:
+            self.destroy()
+
+    # 关闭连接，并销毁
+    def destroy(self):
+        if self._remote_sock:
+            self._loop.remove(self._remote_sock, self)
+            self._remote_sock.close()
+            self._remote_sock = None
+            self._loop
+        if self._local_sock:
+            self._loop.remove(self._local_sock, self)
+            self._local_sock.close()
+            self._local_sock =None
