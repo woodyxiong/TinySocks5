@@ -21,17 +21,13 @@ class Controller(object):
             raise Exception("already add to loop")
         self._eventloop = loop
         self._eventloop.add(self.server_socket, self)
+        print(self._eventloop._fdmap)
 
     def handle_event(self, sock, event):
         if sock == self.server_socket:
             # 新客户端连接
             conn = self.server_socket.accept()
-            handler = Tcprelay (conn, self._eventloop, self._config)
-            self._fd_to_handlers[sock.fileno()] = handler
-        else:
-            handler = self._fd_to_handlers[sock.fileno()]
-            if handler:
-                handler.handle_event(sock, event)
+            handler = Tcprelay (self, conn, self._eventloop, self._config, self._fd_to_handlers)
 
 
 
