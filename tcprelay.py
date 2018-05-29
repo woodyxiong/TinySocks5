@@ -79,7 +79,7 @@ class Tcprelay(object):
 
     # 解析ip/域名和port
     def parse_addr(self, data):
-        length = ord(data[1])
+        length = data[1]
         addr = data[2:length+2]
         if len(data[length+2:]) == 2:
             port = ord(data[length+2:length+3])*256+ord(data[length+3:])
@@ -101,8 +101,6 @@ class Tcprelay(object):
     # 与remote_sock连接
     def handle_stage_addr(self, data):
         cmd = data[1]
-        print("cmd",cmd.encode('hex'))
-        cmd = ord(cmd) #string转int
         if cmd == CMD_CONNECT:
             # TCP连接
             data = data[3:]

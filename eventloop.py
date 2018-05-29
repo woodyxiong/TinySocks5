@@ -29,13 +29,13 @@ class SelectLoop(object):
 class EventLoop(object):
     def __init__(self):
         self._isstopping = False
-        if hasattr(select, 'epoll'):
-            self._impl = select.epoll()
-            self._model = 'epoll'
+        # if hasattr(select, 'epoll'):
+        #     self._impl = select.epoll()
+        #     self._model = 'epoll'
         # elif hasattr(select, 'kqueue'):
         #     self._impl = KqueueLoop()
         #     self._model = 'kqueue'
-        elif hasattr(select, 'select'):
+        if hasattr(select, 'select'):
             self._impl = SelectLoop()
             self._model = 'select'
         self._fdmap = {} #[fd](f,handler)
