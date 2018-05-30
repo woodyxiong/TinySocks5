@@ -67,11 +67,14 @@ class EventLoop(object):
         while not self._isstopping:
             try:
                 events = self.poll()
+                print("2333")
             except Exception as e:
                 print(e)
 
             for fd, sock, event in events:
                 try:
+                    if sock.fileno() < 0:
+                        break
                     if self._fdmap[sock.fileno()][0]:
                         handler = self._fdmap[sock.fileno()][1]
                     else:

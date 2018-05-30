@@ -93,6 +93,7 @@ class Tcprelay(object):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect(server_addr)
+            sock.setblocking(False)
             return sock
         except(OSError, IOError) as e:
             print(e)
