@@ -2,6 +2,7 @@
 # -*- coding: UTF-8 -*-
 from __future__ import absolute_import
 import socket
+import logging
 
 BUF_SIZE = 32 * 1024
 
@@ -20,15 +21,13 @@ CMD_UDP_ASSOCIATE = 3
 
 
 class Tcprelay(object):
-    def __init__(self, server , conn, loop, config, fd_to_handlers):
-        self._conn = conn
+    def __init__(self, server, conn, loop, config, fd_to_handlers):
         self._loop = loop
         self._config = config
         self._local_sock = conn[0]
         self._remote_sock = None
-        self._stage = STAGE_INIT
-        self._remote_server_addr = ()
         self._server = server
+        self._stage = STAGE_INIT
         self._fd_to_handlers = fd_to_handlers
 
         self._loop.add(self._local_sock, self)
@@ -44,6 +43,7 @@ class Tcprelay(object):
             self.on_remote_read()
             return
         else:
+            logging.warning("tcprelay接收不相关的socket"+str(sock.fileno()))
             self.destroy()
 
     # 读取本地socks5的信息
@@ -58,7 +58,8 @@ class Tcprelay(object):
                 self.destroy()
                 return
         except(OSError, IOError) as e:
-            print(e)
+            logging.warning("接收数据时发生错误")
+            print("接收数据时发生错误"+e)
         if self._stage == STAGE_INIT:
             # 建立握手
             self.handle_stage_init(data)
@@ -69,11 +70,16 @@ class Tcprelay(object):
             return
         if self._stage == STAGE_CONNECTING:
             self.handle_stage_connecting(data)
-        # print(data.encode('hex'))
+        else:
+            logging.warning("tcprelay的_stage状态值异常"+str(self._stage))
         # print(data)
+        # print(str(data))
 
     # 建立握手
     def handle_stage_init(self, data):
+        if data != b'\x05\x01\x00':
+            logging.warning("非标准的socks5握手data="+str(data))
+            self.destroy()
         if self.write_to_sock(b'\x05\00', self._local_sock):
             self._stage = STAGE_ADDR
 
@@ -101,6 +107,7 @@ class Tcprelay(object):
 
     # 与remote_sock连接
     def handle_stage_addr(self, data):
+        print(data)
         cmd = data[1]
         if cmd == CMD_CONNECT:
             # TCP连接
