@@ -85,29 +85,36 @@ class Tcprelay(object):
 
     # 解析ip/域名和port
     def parse_addr(self, data):
-        length = data[1]
-        addr = data[2:length+2]
-        if len(data[length+2:]) == 2:
-            port = ord(data[length+2:length+3])*256+ord(data[length+3:])
-            result = (addr, port)
-            return result
-        else:
+        try:
+            length = data[1]
+            addr = data[2:length+2]
+            if len(data[length+2:]) == 2:
+                port = ord(data[length+2:length+3])*256+ord(data[length+3:])
+                result = (addr, port)
+                return result
+            else:
+                logging.warning("解析地址出错,地址加端口:"+str(data[1:]))
+                self.destroy()
+        except:
+            logging.warning("解析地址出错,地址加端口:"+str(data[1:]))
             self.destroy()
 
     # 创建远程连接
     def create_remote_sock(self, server_addr):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect(server_addr)
             sock.setblocking(False)
             return sock
-        except(OSError, IOError) as e:
+        except Exception as e:
             print(e)
+            logging.warning("创建远程连接失败")
             self.destroy()
 
     # 与remote_sock连接
     def handle_stage_addr(self, data):
-        print(data)
+        if len(data) < 6:
+            logging.warning("连接阶段非标准socks,data="+str(data))
         cmd = data[1]
         if cmd == CMD_CONNECT:
             # TCP连接
@@ -124,7 +131,7 @@ class Tcprelay(object):
             self._loop.add(self._remote_sock, self)
             self._stage = STAGE_CONNECTING
             self.write_to_sock(b'\x05\x00\x00\x01'
-                           b'\x00\x00\x00\x00\x10\x10', self._local_sock)
+                               b'\x00\x00\x00\x00\x10\x10', self._local_sock)
             self._fd_to_handlers[self._remote_sock.fileno()] = self
         else:
             self.destroy()
@@ -138,8 +145,11 @@ class Tcprelay(object):
 
     # 发送
     def write_to_sock(self, data, sock):
-        sock.send(data)
-        return True
+        try:
+            sock.send(data)
+            return True
+        except Exception as e:
+            return False
 
     # 接收到remote发送的信息
     def on_remote_read(self):
