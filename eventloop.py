@@ -2,6 +2,7 @@
 # -*- coding: UTF-8 -*-
 
 import select
+import logging
 
 
 class SelectLoop(object):
@@ -19,9 +20,13 @@ class SelectLoop(object):
         return result
 
     def register(self, fd):
+        if self._r_list.__contains__(fd):
+            logging.info("select的_r_list的"+str(fd)+"已经存在")
         self._r_list.add(fd)
 
     def unregister(self, fd):
+        if not self._r_list.__contains__(fd):
+            logging.info("select的_r_list的"+str(fd)+"为空")
         self._r_list.remove(fd)
 
 
@@ -38,6 +43,8 @@ class EventLoop(object):
         if hasattr(select, 'select'):
             self._impl = SelectLoop()
             self._model = 'select'
+        else:
+            raise Exception("Don't hava select model")
         self._fdmap = {} #[fd](f,handler)
 
     def poll(self):
@@ -52,13 +59,17 @@ class EventLoop(object):
     def stop(self):
         self._isstopping = True
 
-    def add(self, f, handler):
-        fd = f.fileno()
-        self._fdmap[fd] = (f, handler)
+    def add(self, socket, handler):
+        fd = socket.fileno()
+        if self._fdmap.__contains__(fd):
+            logging.info("event映射的文件标识符", fd, "已存在")
+        self._fdmap[fd] = (socket, handler)
         self._impl.register(fd)
 
     def remove(self, f, handler):
         fd = f.fileno()
+        if not self._fdmap[fd]:
+            logging.info("event映射的文件标识符", fd, "为空")
         del self._fdmap[fd]
         self._impl.unregister(fd)
 
@@ -67,20 +78,24 @@ class EventLoop(object):
         while not self._isstopping:
             try:
                 events = self.poll()
-                print("2333")
             except Exception as e:
                 print(e)
+                logging.info(e)
 
+            #   events(fileno,socket,1)
             for fd, sock, event in events:
                 try:
                     if sock.fileno() < 0:
+                        logging.info("文件标识符小于零"+str(sock.fileno()))
                         break
                     if self._fdmap[sock.fileno()][0]:
                         handler = self._fdmap[sock.fileno()][1]
                     else:
                         self.remove(sock.fileno())
+                        logging.warning("未找到对应的句柄"+str(sock.fileno()))
                         break
                     # 转入控制器
                     handler.handle_event(sock, event)
                 except (OSError, IOError) as e:
+                    logging.warning(e)
                     print(e)
