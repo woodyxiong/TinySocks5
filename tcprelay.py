@@ -59,7 +59,6 @@ class Tcprelay(object):
                 return
         except(OSError, IOError) as e:
             logging.warning("接收数据时发生错误")
-            print("接收数据时发生错误"+e)
         if self._stage == STAGE_INIT:
             # 建立握手
             self.handle_stage_init(data)
@@ -103,12 +102,14 @@ class Tcprelay(object):
     def create_remote_sock(self, server_addr):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect(server_addr)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.setblocking(False)
+            sock.settimeout(0.5)
+            sock.connect(server_addr)
             return sock
         except Exception as e:
             print(e)
-            logging.warning("创建远程连接失败")
+            logging.info("远程连接地址失败"+str(server_addr)+"Excption:"+str(e))
             self.destroy()
 
     # 与remote_sock连接
@@ -134,6 +135,7 @@ class Tcprelay(object):
                                b'\x00\x00\x00\x00\x10\x10', self._local_sock)
             self._fd_to_handlers[self._remote_sock.fileno()] = self
         else:
+            logging.warning("连接remote_sock失败")
             self.destroy()
 
     # 已经连接上，转发信息
@@ -141,6 +143,7 @@ class Tcprelay(object):
         if data:
             self.write_to_sock(data, self._remote_sock)
         else:
+            logging.warning("转发给remote_sock失败")
             self.destroy()
 
     # 发送
@@ -149,14 +152,20 @@ class Tcprelay(object):
             sock.send(data)
             return True
         except Exception as e:
+            logging.warning("发送失败"+str(e))
             return False
 
     # 接收到remote发送的信息
     def on_remote_read(self):
         if not self._remote_sock:
+            logging.warning("remote_sock为空")
             return
-        data = self._remote_sock.recv(BUF_SIZE)
+        try:
+            data = self._remote_sock.recv(BUF_SIZE)
+        except Exception as e:
+            logging.warning("接收remote_sock失败"+str(e))
         if data:
+            # 转发
             self.write_to_sock(data, self._local_sock)
         else:
             # remote 断开连接
@@ -164,7 +173,6 @@ class Tcprelay(object):
 
     # 关闭连接，并销毁
     def destroy(self):
-        # print(self._fd_to_handlers[self._remote_sock.fileno()])
         if self._remote_sock:
             del self._fd_to_handlers[self._remote_sock.fileno()]
             self._loop.remove(self._remote_sock, self)
