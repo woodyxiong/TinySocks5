@@ -160,6 +160,7 @@ class Tcprelay(object):
         if not self._remote_sock:
             logging.warning("remote_sock为空")
             return
+        data = None
         try:
             data = self._remote_sock.recv(BUF_SIZE)
         except Exception as e:
