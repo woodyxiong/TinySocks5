@@ -114,6 +114,9 @@ class Tcprelay(object):
 
     # 与remote_sock连接
     def handle_stage_addr(self, data):
+        if not data:
+            self.destroy()
+            return
         if len(data) < 6:
             logging.warning("连接阶段非标准socks,data="+str(data))
         cmd = data[1]
