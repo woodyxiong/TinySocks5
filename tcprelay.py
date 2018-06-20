@@ -3,6 +3,7 @@
 from __future__ import absolute_import
 import socket
 import logging
+import time
 
 BUF_SIZE = 32 * 1024
 
@@ -26,14 +27,29 @@ class Tcprelay(object):
         self._config = config
         self._local_sock = conn[0]
         self._remote_sock = None
+        self._remote_server_addr = None
         self._server = server
         self._stage = STAGE_INIT
         self._fd_to_handlers = fd_to_handlers
 
+        self._local_sock.setblocking(False)
+
         self._loop.add(self._local_sock, self)
         self._fd_to_handlers[conn[0].fileno()] = self
 
+        self._loop.clear_we(self._local_sock.fileno())
+
     def handle_event(self, sock, event):
+        if event == 2:
+            # 远程连接成功
+            self._loop._impl.clear_we_list(sock.fileno())
+            self.write_to_sock(b'\x05\x00\x00\x01'
+                               b'\x00\x00\x00\x00\x10\x10', self._local_sock)
+            return
+        elif event == 3:
+            # 远程连接失败
+            self.destroy()
+            return
         if sock == self._local_sock:
             # 本地socks5
             self.on_local_read()
@@ -69,6 +85,7 @@ class Tcprelay(object):
             return
         if self._stage == STAGE_CONNECTING:
             self.handle_stage_connecting(data)
+            return
         else:
             logging.warning("tcprelay的_stage状态值异常"+str(self._stage))
         # print(data)
@@ -100,17 +117,16 @@ class Tcprelay(object):
 
     # 创建远程连接
     def create_remote_sock(self, server_addr):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setblocking(False)
+        sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.setblocking(False)
-            sock.settimeout(0.5)
-            sock.connect(server_addr)
-            return sock
+            sock.connect_ex(server_addr)
         except Exception as e:
-            print(e)
             logging.info("远程连接地址失败"+str(server_addr)+"Excption:"+str(e))
-            self.destroy()
+            # self.destroy()
+        return sock
 
     # 与remote_sock连接
     def handle_stage_addr(self, data):
@@ -134,8 +150,6 @@ class Tcprelay(object):
         if self._remote_sock:
             self._loop.add(self._remote_sock, self)
             self._stage = STAGE_CONNECTING
-            self.write_to_sock(b'\x05\x00\x00\x01'
-                               b'\x00\x00\x00\x00\x10\x10', self._local_sock)
             self._fd_to_handlers[self._remote_sock.fileno()] = self
         else:
             logging.warning("连接remote_sock失败")
@@ -152,7 +166,10 @@ class Tcprelay(object):
     # 发送
     def write_to_sock(self, data, sock):
         try:
-            sock.send(data)
+            data_length = len(data)
+            send_length = sock.send(data)
+            if send_length < data_length:
+                logging.warning("未一次性发送完全")
             return True
         except Exception as e:
             logging.warning("发送失败"+str(e))
