@@ -57,6 +57,35 @@ https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt
 
 ![完成配置](http://qncdn.gfkui.cn/18/6/21%E7%BB%93%E6%9E%9C.jpg)
 
+## 原理介绍
+### 结构示意图如下
 
-## 原理分析
+![Tinysocks5结构示意图](http://qncdn.gfkui.cn/18/6/21/TinySocks5.png)
 
+### 文件简介
+
++ main.py           主函数入口文件
++ shell.py          分析以及输出shell指令
++ eventloop.py      程序的主循环
++ controller.py     程序控制器
++ tcprelay.py       内容分发类
+
+### 原理分析
+首先进入`main.py`，从这里分发到`shell.py`来解析端口、用户名、密码等配置信息。
+
+再继续生成`Controller`和`EventLoop`类，`Controller`是`socks5`服务器端，用于监控浏览器发送的`socks5`请求，并且将监控的可读事件注册到`EventLoop`类对其进行监控。
+
+`EventLoop`一直循环监控可读事件、可写事件、错误事件。
+
+如果有浏览器客户端与`Controller`相连，则生成`Tcprelay`类，此类有`local_sock`用于与浏览器相连、`remote_sock`与目标服务器相连。并且将`local_sock`与`remote_sock`注册进`EventLoop`进行阻塞监视。
+
+`Tcprelay`类用于处理浏览器的`socks5`协议的握手、验证以及连接目标服务器并且互相转发数据。
+
+## Todo
+
+- 更加灵活地处理错误
+- 可以使用`docker`更加灵活的部署
+- 守护进程模式
+- 可以无缝热重启
+- 在shell指令上添加可以指定用户名密码的功能
+- 可以根据配置文件进行配置指令操作
