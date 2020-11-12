@@ -7,12 +7,9 @@ import time
 
 BUF_SIZE = 32 * 1024
 
-STAGE_INIT = 0
-STAGE_ADDR = 1
-STAGE_UDP_ASSOC = 2
-STAGE_DNS = 3
-STAGE_CONNECTING = 4
-STAGE_STREAM = 5
+STAGE_INIT = 0  # 收到客户端的连接
+STAGE_CONNECTED_REMOTE = 1  # 连接socks5服务端
+STAGE_STREAM = 2  # 已连接上
 STAGE_DESTROYED = -1
 
 # SOCKS command definition
@@ -26,7 +23,6 @@ class Tcprelay(object):
         self._loop = loop
         self._config = config
         self._local_sock = conn[0]
-        self._remote_sock = None
         self._remote_server_addr = None
         self._server = server
         self._stage = STAGE_INIT
@@ -39,12 +35,17 @@ class Tcprelay(object):
 
         self._loop.clear_we(self._local_sock.fileno())
 
+        self._remote_sock = self.create_remote_sock('172.18.12.70')
+        if self._remote_sock:
+            self._loop.add(self._remote_sock, self)
+            self._stage = STAGE_CONNECTED_REMOTE
+            self._fd_to_handlers[self._remote_sock.fileno()] = self
+
     def handle_event(self, sock, event):
         if event == 2:
             # 远程连接成功
             self._loop._impl.clear_we_list(sock.fileno())
-            self.write_to_sock(b'\x05\x00\x00\x01'
-                               b'\x00\x00\x00\x00\x10\x10', self._local_sock)
+            logging.info("远程socks5服务端已连接")
             return
         elif event == 3:
             # 远程连接失败
@@ -59,10 +60,10 @@ class Tcprelay(object):
             self.on_remote_read()
             return
         else:
-            logging.warning("tcprelay接收不相关的socket"+str(sock.fileno()))
+            logging.warning("tcprelay接收不相关的socket" + str(sock.fileno()))
             self.destroy()
 
-    # 读取本地socks5的信息
+    # 读取本地信息
     def on_local_read(self):
         if not self._local_sock:
             return
@@ -87,14 +88,14 @@ class Tcprelay(object):
             self.handle_stage_connecting(data)
             return
         else:
-            logging.warning("tcprelay的_stage状态值异常"+str(self._stage))
+            logging.warning("tcprelay的_stage状态值异常" + str(self._stage))
         # print(data)
         # print(str(data))
 
     # 建立握手
     def handle_stage_init(self, data):
         if data != b'\x05\x01\x00':
-            logging.warning("非标准的socks5握手data="+str(data))
+            logging.warning("非标准的socks5握手data=" + str(data))
             self.destroy()
         if self.write_to_sock(b'\x05\00', self._local_sock):
             self._stage = STAGE_ADDR
@@ -103,16 +104,16 @@ class Tcprelay(object):
     def parse_addr(self, data):
         try:
             length = data[1]
-            addr = data[2:length+2]
-            if len(data[length+2:]) == 2:
-                port = ord(data[length+2:length+3])*256+ord(data[length+3:])
+            addr = data[2:length + 2]
+            if len(data[length + 2:]) == 2:
+                port = ord(data[length + 2:length + 3]) * 256 + ord(data[length + 3:])
                 result = (addr, port)
                 return result
             else:
-                logging.warning("解析地址出错,地址加端口:"+str(data[1:]))
+                logging.warning("解析地址出错,地址加端口:" + str(data[1:]))
                 self.destroy()
         except:
-            logging.warning("解析地址出错,地址加端口:"+str(data[1:]))
+            logging.warning("解析地址出错,地址加端口:" + str(data[1:]))
             self.destroy()
 
     # 创建远程连接
@@ -124,7 +125,7 @@ class Tcprelay(object):
         try:
             sock.connect_ex(server_addr)
         except Exception as e:
-            logging.info("远程连接地址失败"+str(server_addr)+"Excption:"+str(e))
+            logging.info("远程连接地址失败" + str(server_addr) + "Excption:" + str(e))
             # self.destroy()
         return sock
 
@@ -134,7 +135,7 @@ class Tcprelay(object):
             self.destroy()
             return
         if len(data) < 6:
-            logging.warning("连接阶段非标准socks,data="+str(data))
+            logging.warning("连接阶段非标准socks,data=" + str(data))
         cmd = data[1]
         if cmd == CMD_CONNECT:
             # TCP连接
@@ -172,7 +173,7 @@ class Tcprelay(object):
                 logging.warning("未一次性发送完全")
             return True
         except Exception as e:
-            logging.warning("发送失败"+str(e))
+            logging.warning("发送失败" + str(e))
             return False
 
     # 接收到remote发送的信息
@@ -184,7 +185,7 @@ class Tcprelay(object):
         try:
             data = self._remote_sock.recv(BUF_SIZE)
         except Exception as e:
-            logging.warning("接收remote_sock失败"+str(e))
+            logging.warning("接收remote_sock失败" + str(e))
         if data:
             # 转发
             self.write_to_sock(data, self._local_sock)
@@ -203,6 +204,4 @@ class Tcprelay(object):
             del self._fd_to_handlers[self._local_sock.fileno()]
             self._loop.remove(self._local_sock, self)
             self._local_sock.close()
-            self._local_sock =None
-
-
+            self._local_sock = None
