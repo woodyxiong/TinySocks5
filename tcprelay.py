@@ -1,8 +1,12 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
 from __future__ import absolute_import
+
+import errno
 import socket
 import logging
+
+import eventloop
 
 BUF_SIZE = 32 * 1024
 
@@ -24,10 +28,13 @@ MYSQL_PORT = 3306
 # MYSQL_IP = '49.234.85.242'
 # MYSQL_PORT = 3306
 
-# SOCKS command definition
-CMD_CONNECT = 1
-CMD_BIND = 2
-CMD_UDP_ASSOCIATE = 3
+WAIT_STATUS_INIT = 0
+WAIT_STATUS_READING = 1
+WAIT_STATUS_WRITING = 2
+WAIT_STATUS_READWRITING = WAIT_STATUS_READING | WAIT_STATUS_WRITING
+
+STREAM_UP = 0
+STREAM_DOWN = 1
 
 
 # 1. 客户端-》服务端 050100
@@ -42,17 +49,21 @@ class Tcprelay(object):
         self._server = server
         self._stage = STAGE_INIT
         self._fd_to_handlers = fd_to_handlers
+        self._data_to_write_to_local = []
+        self._data_to_write_to_remote = []
+        self._downstream_status = WAIT_STATUS_INIT
+        self._upstream_status = WAIT_STATUS_READING
 
         self._local_sock.setblocking(False)
 
-        self._loop.add(self._local_sock, self)
+        self._loop.add(self._local_sock, eventloop.POLL_IN | eventloop.POLL_ERR, self)
         self._fd_to_handlers[conn[0].fileno()] = self
 
-        self._loop.clear_we(self._local_sock.fileno())
+        # self._loop.clear_we(self._local_sock.fileno())
 
         self._remote_sock = self.create_remote_sock((SOCKS5_SERVER_IP, SOCKS5_SERVER_PORT))
         if self._remote_sock:
-            self._loop.add(self._remote_sock, self)
+            self._loop.add(self._remote_sock, eventloop.POLL_ERR, self)
             self._fd_to_handlers[self._remote_sock.fileno()] = self
         else:
             logging.warning("连接remote_sock失败")
@@ -69,6 +80,7 @@ class Tcprelay(object):
             return
         elif event == 3:
             # 远程连接失败
+            logging.info("远程连接失败")
             self.destroy()
             return
         if sock == self._local_sock:
@@ -105,30 +117,6 @@ class Tcprelay(object):
         # print(data)
         # print(str(data))
 
-    # 建立握手
-    def handle_stage_init(self, data):
-        if data != b'\x05\x01\x00':
-            logging.warning("非标准的socks5握手data=" + str(data))
-            self.destroy()
-        if self.write_to_sock(b'\x05\00', self._local_sock):
-            self._stage = STAGE_ADDR
-
-    # 解析ip/域名和port
-    def parse_addr(self, data):
-        try:
-            length = data[1]
-            addr = data[2:length + 2]
-            if len(data[length + 2:]) == 2:
-                port = ord(data[length + 2:length + 3]) * 256 + ord(data[length + 3:])
-                result = (addr, port)
-                return result
-            else:
-                logging.warning("解析地址出错,地址加端口:" + str(data[1:]))
-                self.destroy()
-        except:
-            logging.warning("解析地址出错,地址加端口:" + str(data[1:]))
-            self.destroy()
-
     # 创建远程连接
     def create_remote_sock(self, server_addr):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -142,52 +130,95 @@ class Tcprelay(object):
             # self.destroy()
         return sock
 
-    # 与remote_sock连接
-    def handle_stage_addr(self, data):
-        if not data:
-            self.destroy()
-            return
-        if len(data) < 6:
-            logging.warning("连接阶段非标准socks,data=" + str(data))
-        cmd = data[1]
-        if cmd == CMD_CONNECT:
-            # TCP连接
-            data = data[3:]
-        elif cmd == CMD_BIND:
-            pass
-        elif cmd == CMD_UDP_ASSOCIATE:
-            # UDP连接
-            pass
-        header_result = self.parse_addr(data)
-        self._remote_server_addr = header_result
-        self._remote_sock = self.create_remote_sock(header_result)
-        if self._remote_sock:
-            self._loop.add(self._remote_sock, self)
-            self._stage = STAGE_CONNECTING
-            self._fd_to_handlers[self._remote_sock.fileno()] = self
-        else:
-            logging.warning("连接remote_sock失败")
-            self.destroy()
-
     # 已经连接上，转发信息
     def handle_stage_connecting(self, data):
         if data:
-            self.write_to_sock(data, self._remote_sock)
+            if not self.write_to_sock(data, self._remote_sock):
+                logging.warning("未转发完成")
         else:
             logging.warning("转发给remote_sock失败")
             self.destroy()
 
     # 发送
     def write_to_sock(self, data, sock):
+        if sock == self._remote_sock:
+            if self._data_to_write_to_remote:
+                data = b''.join(self._data_to_write_to_remote)
+                self._data_to_write_to_remote = []
+        elif sock == self._local_sock:
+            if self._data_to_write_to_local:
+                data = b''.join(self._data_to_write_to_local)
+                self._data_to_write_to_local = []
+
+        uncomplete = False
         try:
             data_length = len(data)
             send_length = sock.send(data)
+            data = data[send_length:]
             if send_length < data_length:
                 logging.warning("未一次性发送完全")
             return True
-        except Exception as e:
-            logging.warning("发送失败" + str(e))
-            return False
+        except (OSError, IOError) as e:
+            error_no = eventloop.errno_from_exception(e)
+            if error_no in (errno.EAGAIN, errno.EINPROGRESS,
+                            errno.EWOULDBLOCK):
+                uncomplete = True
+            else:
+                if sock == self._remote_sock:
+                    logging.warning("发送远端失败" + str(e))
+                else:
+                    logging.warning("发送本地失败" + str(e))
+                self.destroy()
+                return False
+        if uncomplete:
+            if sock == self._local_sock:
+                self._data_to_write_to_local.append(data)
+                self._update_stream(STREAM_DOWN, WAIT_STATUS_WRITING)
+            elif sock == self._remote_sock:
+                self._data_to_write_to_remote.append(data)
+                self._update_stream(STREAM_UP, WAIT_STATUS_WRITING)
+            else:
+                logging.error('write_all_to_sock:unknown socket')
+        else:
+            if sock == self._local_sock:
+                self._update_stream(STREAM_DOWN, WAIT_STATUS_READING)
+            elif sock == self._remote_sock:
+                self._update_stream(STREAM_UP, WAIT_STATUS_READING)
+            else:
+                logging.error('write_all_to_sock:unknown socket')
+        return True
+
+    def _update_stream(self, stream, status):
+        # update a stream to a new waiting status
+
+        # check if status is changed
+        # only update if dirty
+        dirty = False
+        if stream == STREAM_DOWN:
+            if self._downstream_status != status:
+                self._downstream_status = status
+                dirty = True
+        elif stream == STREAM_UP:
+            if self._upstream_status != status:
+                self._upstream_status = status
+                dirty = True
+        if not dirty:
+            return
+
+        if self._local_sock:
+            event = eventloop.POLL_ERR
+            if self._downstream_status & WAIT_STATUS_WRITING:
+                event |= eventloop.POLL_OUT
+            if self._upstream_status & WAIT_STATUS_READING:
+                event |= eventloop.POLL_IN
+            # self._loop.modify(self._local_sock, event)
+        if self._remote_sock:
+            event = eventloop.POLL_ERR
+            if self._downstream_status & WAIT_STATUS_READING:
+                event |= eventloop.POLL_IN
+            if self._upstream_status & WAIT_STATUS_WRITING:
+                event |= eventloop.POLL_OUT
+            # self._loop.modify(self._remote_sock, event)
 
     # 接收到remote发送的信息
     def on_remote_read(self):
@@ -207,7 +238,8 @@ class Tcprelay(object):
                 self.on_judge_connected(data)
                 return
             if self._stage == STAGE_CONNECTED:
-                self.write_to_sock(data, self._local_sock)
+                if not self.write_to_sock(data, self._local_sock):
+                    logging.warning("STAGE_CONNECTED发送失败了")
                 return
 
         else:
@@ -242,6 +274,8 @@ class Tcprelay(object):
 
         if self.write_to_sock(output, self._remote_sock):
             self._stage = STAGE_SEND_REQUEST_ADDR
+        else:
+            logging.warning("STAGE_RECEIVE_HELLO_FROM_REMOTE失败了")
 
     # 关闭连接，并销毁
     def destroy(self):

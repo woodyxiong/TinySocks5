@@ -3,6 +3,8 @@
 
 from __future__ import absolute_import
 import socket
+
+import eventloop
 from tcprelay import Tcprelay
 
 
@@ -21,7 +23,7 @@ class Controller(object):
         if self._eventloop:
             raise Exception("controller already add to loop")
         self._eventloop = loop
-        self._eventloop.add(self.server_socket, self)
+        self._eventloop.add(self.server_socket, eventloop.POLL_IN | eventloop.POLL_ERR, self)
         self._eventloop.clear_we(self.server_socket.fileno())
 
     def handle_event(self, sock, event):
@@ -29,9 +31,3 @@ class Controller(object):
             # 新客户端连接
             conn = self.server_socket.accept()
             Tcprelay(self, conn, self._eventloop, self._config, self._fd_to_handlers)
-
-
-
-
-
-

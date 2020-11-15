@@ -6,6 +6,13 @@ import logging
 
 TIMEOUT = 10
 
+POLL_NULL = 0x00
+POLL_IN = 0x01
+POLL_OUT = 0x04
+POLL_ERR = 0x08
+POLL_HUP = 0x10
+POLL_NVAL = 0x20
+
 
 class SelectLoop(object):
     def __init__(self):
@@ -17,26 +24,38 @@ class SelectLoop(object):
         r, w, e = select.select(self._r_list, self._w_list, self._e_list, timeout)
         result = []
         for res_r in r:
-            t = (res_r, 1)
+            t = (res_r, POLL_IN)
             result.append(t)
         for res_w in w:
-            t = (res_w, 2)
+            t = (res_w, POLL_OUT)
             result.append(t)
         for res_e in e:
-            t = (res_e, 3)
+            t = (res_e, POLL_ERR)
             result.append(t)
         return result
 
-    def register(self, fd):
-        if self._r_list.__contains__(fd):
-            logging.info("select的_r_list的"+str(fd)+"已经存在")
-        self._r_list.add(fd)
+    def register(self, fd, mode):
+        # if self._r_list.__contains__(fd):
+        #     logging.info("select的_r_list的"+str(fd)+"已经存在")
+        # self._r_list.add(fd)
         if self._w_list.__contains__(fd):
             logging.info("select的_w_list的"+str(fd)+"已经存在")
         self._w_list.add(fd)
-        if self._e_list.__contains__(fd):
-            logging.info("select的_e_list的"+str(fd)+"已经存在")
-        self._e_list.add(fd)
+        # if self._e_list.__contains__(fd):
+        #     logging.info("select的_e_list的"+str(fd)+"已经存在")
+        # self._e_list.add(fd)
+        if mode & POLL_IN:
+            if self._r_list.__contains__(fd):
+                logging.info("select的_r_list的" + str(fd) + "已经存在")
+            self._r_list.add(fd)
+        if mode & POLL_OUT:
+            if self._w_list.__contains__(fd):
+                logging.info("select的_w_list的" + str(fd) + "已经存在")
+            self._w_list.add(fd)
+        if mode & POLL_ERR:
+            if self._e_list.__contains__(fd):
+                logging.info("select的_e_list的" + str(fd) + "已经存在")
+            self._e_list.add(fd)
 
     def unregister(self, fd):
         if self._r_list.__contains__(fd):
@@ -67,7 +86,7 @@ class EventLoop(object):
             self._model = 'select'
         else:
             raise Exception("Don't hava select model")
-        self._fdmap = {} #[fd](f,handler)
+        self._fdmap = {}  # [fd](f,handler)
 
     def poll(self, timeout):
         events = self._impl.poll(timeout)
@@ -81,12 +100,12 @@ class EventLoop(object):
     def stop(self):
         self._isstopping = True
 
-    def add(self, socket, handler):
+    def add(self, socket, mode, handler):
         fd = socket.fileno()
         if self._fdmap.__contains__(fd):
             logging.info("event映射的文件标识符", fd, "已存在")
         self._fdmap[fd] = (socket, handler)
-        self._impl.register(fd)
+        self._impl.register(fd, mode)
 
     def remove(self, f, handler):
         fd = f.fileno()
@@ -113,16 +132,38 @@ class EventLoop(object):
             for fd, sock, event in events:
                 try:
                     if sock.fileno() < 0:
-                        logging.warning("文件标识符小于零"+str(sock.fileno()))
+                        logging.warning("文件标识符小于零" + str(sock.fileno()))
                         break
                     if self._fdmap[sock.fileno()][0]:
                         handler = self._fdmap[sock.fileno()][1]
                     else:
                         self.remove(sock.fileno())
-                        logging.warning("未找到对应的句柄"+str(sock.fileno()))
+                        logging.warning("未找到对应的句柄" + str(sock.fileno()))
                         break
                     # 转入控制器
                     handler.handle_event(sock, event)
                 except (OSError, IOError) as e:
                     logging.warning(e)
                     print(e)
+
+    def modify(self, fd, mode):
+        self.unregister(fd)
+        self.register(fd, mode)
+
+
+def errno_from_exception(e):
+    """Provides the errno from an Exception object.
+
+    There are cases that the errno attribute was not set so we pull
+    the errno out of the args but if someone instatiates an Exception
+    without any args you will get a tuple error. So this function
+    abstracts all that behavior to give you a safe way to get the
+    errno.
+    """
+
+    if hasattr(e, 'errno'):
+        return e.errno
+    elif e.args:
+        return e.args[0]
+    else:
+        return None
