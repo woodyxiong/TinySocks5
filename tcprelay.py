@@ -28,6 +28,8 @@ MYSQL_PORT = 3306
 # MYSQL_IP = '49.234.85.242'
 # MYSQL_PORT = 3306
 
+MSG_FASTOPEN = 0x20000000
+
 WAIT_STATUS_INIT = 0
 WAIT_STATUS_READING = 1
 WAIT_STATUS_WRITING = 2
@@ -60,17 +62,17 @@ class Tcprelay(object):
         self._fd_to_handlers[conn[0].fileno()] = self
 
         # self._loop.clear_we(self._local_sock.fileno())
-
-        self._remote_sock = self.create_remote_sock((SOCKS5_SERVER_IP, SOCKS5_SERVER_PORT))
+        addr = (SOCKS5_SERVER_IP, SOCKS5_SERVER_PORT)
+        self._remote_sock = self.create_remote_sock(addr)
         if self._remote_sock:
-            self._loop.add(self._remote_sock, eventloop.POLL_ERR, self)
+            self._loop.add(self._remote_sock, eventloop.POLL_OUT | eventloop.POLL_ERR, self)
             self._fd_to_handlers[self._remote_sock.fileno()] = self
         else:
             logging.warning("连接remote_sock失败")
             self.destroy()
 
     def handle_event(self, sock, event):
-        if event == 2:
+        if (event == eventloop.POLL_IN) & (self._stage == WAIT_STATUS_INIT):
             # 远程连接成功
             self._loop._impl.clear_we_list(sock.fileno())
             self._stage = STAGE_CONNECTED_REMOTE
@@ -78,10 +80,12 @@ class Tcprelay(object):
             if self.write_to_sock(b'\x05\x01\x00', self._remote_sock):
                 self._stage = STAGE_SEND_HELLO_TO_REMOTE
             return
-        elif event == 3:
+        elif event == eventloop.POLL_ERR:
             # 远程连接失败
             logging.info("远程连接失败")
             self.destroy()
+            return
+        if (sock == self._local_sock) & (self._stage == WAIT_STATUS_INIT):
             return
         if sock == self._local_sock:
             # 本地socks5

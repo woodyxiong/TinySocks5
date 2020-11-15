@@ -38,9 +38,9 @@ class SelectLoop(object):
         # if self._r_list.__contains__(fd):
         #     logging.info("select的_r_list的"+str(fd)+"已经存在")
         # self._r_list.add(fd)
-        if self._w_list.__contains__(fd):
-            logging.info("select的_w_list的"+str(fd)+"已经存在")
-        self._w_list.add(fd)
+        # if self._w_list.__contains__(fd):
+        #     logging.info("select的_w_list的"+str(fd)+"已经存在")
+        # self._w_list.add(fd)
         # if self._e_list.__contains__(fd):
         #     logging.info("select的_e_list的"+str(fd)+"已经存在")
         # self._e_list.add(fd)
