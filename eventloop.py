@@ -102,8 +102,8 @@ class EventLoop(object):
 
     def add(self, socket, mode, handler):
         fd = socket.fileno()
-        if self._fdmap.__contains__(fd):
-            logging.info("event映射的文件标识符", fd, "已存在")
+        # if self._fdmap.__contains__(fd):
+        #     logging.info("event映射的文件标识符", fd, "已存在")
         self._fdmap[fd] = (socket, handler)
         self._impl.register(fd, mode)
 

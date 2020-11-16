@@ -18,17 +18,15 @@ STAGE_SEND_REQUEST_ADDR = 4  # 已发送需要连接的地址
 STAGE_CONNECTED = 5  # 已连接上
 STAGE_DESTROYED = -1
 
-# SOCKS5_SERVER_IP = '172.18.12.70'
-# SOCKS5_SERVER_PORT = 10080
-# MYSQL_IP = '10.104.20.42'
-# MYSQL_PORT = 3306
-
-SOCKS5_SERVER_IP = '49.234.85.242'
-SOCKS5_SERVER_PORT = 6666
-MYSQL_IP = '127.0.0.1'
+SOCKS5_SERVER_IP = '172.18.12.70'
+SOCKS5_SERVER_PORT = 10080
+MYSQL_IP = '10.104.20.42'
 MYSQL_PORT = 3306
 
-MSG_FASTOPEN = 0x20000000
+# SOCKS5_SERVER_IP = '49.234.85.242'
+# SOCKS5_SERVER_PORT = 6666
+# MYSQL_IP = '127.0.0.1'
+# MYSQL_PORT = 3306
 
 WAIT_STATUS_INIT = 0
 WAIT_STATUS_READING = 1
@@ -72,20 +70,21 @@ class Tcprelay(object):
             self.destroy()
 
     def handle_event(self, sock, event):
-        if (event == eventloop.POLL_IN) & (self._stage == WAIT_STATUS_INIT):
-            # 远程连接成功
-            self._loop._impl.clear_we_list(sock.fileno())
-            self._stage = STAGE_CONNECTED_REMOTE
-            logging.info("连接remote_sock成功")
-            if self.write_to_sock(b'\x05\x01\x00', self._remote_sock):
-                self._stage = STAGE_SEND_HELLO_TO_REMOTE
-            return
-        elif event == eventloop.POLL_ERR:
+        if event == eventloop.POLL_ERR:
             # 远程连接失败
             logging.info("远程连接失败")
             self.destroy()
             return
-        if (sock == self._local_sock) & (self._stage == WAIT_STATUS_INIT):
+        if (sock == self._local_sock) & (self._stage == STAGE_INIT):
+            return
+        if (event == eventloop.POLL_OUT) & (self._stage == STAGE_INIT):
+            # 远程连接成功
+            self._loop._impl.clear_we_list(sock.fileno())
+            self._stage = STAGE_CONNECTED_REMOTE
+            logging.info("连接remote_sock成功")
+            self._loop.add(self._remote_sock, eventloop.POLL_IN | eventloop.POLL_ERR, self)
+            if self.write_to_sock(b'\x05\x01\x00', self._remote_sock):
+                self._stage = STAGE_SEND_HELLO_TO_REMOTE
             return
         if sock == self._local_sock:
             # 本地socks5
@@ -111,6 +110,7 @@ class Tcprelay(object):
                 self.destroy()
                 return
         except(OSError, IOError) as e:
+            self.destroy()
             logging.warning("接收数据时发生错误")
             return
         if self._stage == STAGE_CONNECTED:
