@@ -46,14 +46,17 @@ class SelectLoop(object):
         # self._e_list.add(fd)
         if mode & POLL_IN:
             if self._r_list.__contains__(fd):
+                return
                 logging.info("select的_r_list的" + str(fd) + "已经存在")
             self._r_list.add(fd)
         if mode & POLL_OUT:
             if self._w_list.__contains__(fd):
+                return
                 logging.info("select的_w_list的" + str(fd) + "已经存在")
             self._w_list.add(fd)
         if mode & POLL_ERR:
             if self._e_list.__contains__(fd):
+                return
                 logging.info("select的_e_list的" + str(fd) + "已经存在")
             self._e_list.add(fd)
 
@@ -65,11 +68,9 @@ class SelectLoop(object):
         if self._e_list.__contains__(fd):
             self._e_list.remove(fd)
 
-    def clear_we_list(self, fd):
+    def clear_w_list(self, fd):
         if self._w_list.__contains__(fd):
             self._w_list.remove(fd)
-        if self._e_list.__contains__(fd):
-            self._e_list.remove(fd)
 
 
 class EventLoop(object):
@@ -102,9 +103,8 @@ class EventLoop(object):
 
     def add(self, socket, mode, handler):
         fd = socket.fileno()
-        if self._fdmap.__contains__(fd):
-            logging.info("event映射的文件标识符", fd, "已存在")
-        self._fdmap[fd] = (socket, handler)
+        if not self._fdmap.__contains__(fd):
+            self._fdmap[fd] = (socket, handler)
         self._impl.register(fd, mode)
 
     def remove(self, f, handler):
@@ -114,8 +114,8 @@ class EventLoop(object):
         del self._fdmap[fd]
         self._impl.unregister(fd)
 
-    def clear_we(self, fd):
-        self._impl.clear_we_list(fd)
+    def clear_w(self, fd):
+        self._impl.clear_w_list(fd)
 
     def run(self):
         events = []

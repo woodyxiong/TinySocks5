@@ -24,7 +24,6 @@ class Controller(object):
             raise Exception("controller already add to loop")
         self._eventloop = loop
         self._eventloop.add(self.server_socket, eventloop.POLL_IN | eventloop.POLL_ERR, self)
-        self._eventloop.clear_we(self.server_socket.fileno())
 
     def handle_event(self, sock, event):
         if sock == self.server_socket:
