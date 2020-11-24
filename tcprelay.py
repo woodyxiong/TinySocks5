@@ -5,6 +5,7 @@ from __future__ import absolute_import
 import errno
 import socket
 import logging
+import time
 
 import eventloop
 
@@ -145,14 +146,14 @@ class Tcprelay(object):
 
     # 发送
     def write_to_sock(self, data, sock):
-        if sock == self._remote_sock:
-            if self._data_to_write_to_remote:
-                data = b''.join(self._data_to_write_to_remote)
-                self._data_to_write_to_remote = []
-        elif sock == self._local_sock:
-            if self._data_to_write_to_local:
-                data = b''.join(self._data_to_write_to_local)
-                self._data_to_write_to_local = []
+        # if sock == self._remote_sock:
+        #     if self._data_to_write_to_remote:
+        #         data = b''.join(self._data_to_write_to_remote)
+        #         self._data_to_write_to_remote = []
+        # elif sock == self._local_sock:
+        #     if self._data_to_write_to_local:
+        #         data = b''.join(self._data_to_write_to_local)
+        #         self._data_to_write_to_local = []
 
         uncomplete = False
         try:
@@ -166,6 +167,8 @@ class Tcprelay(object):
             error_no = eventloop.errno_from_exception(e)
             if error_no in (errno.EAGAIN, errno.EINPROGRESS,
                             errno.EWOULDBLOCK):
+                time.sleep(0.01)
+                return self.write_to_sock(data, sock)
                 uncomplete = True
             else:
                 if sock == self._remote_sock:
