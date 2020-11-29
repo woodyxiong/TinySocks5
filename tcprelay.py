@@ -48,6 +48,7 @@ class Tcprelay(object):
         self._loop = loop
         self._config = config
         self._local_sock = conn[0]
+        self._local_write_lock = False
         self._remote_server_addr = None
         self._server = server
         self._stage = STAGE_INIT
@@ -62,11 +63,14 @@ class Tcprelay(object):
         self._loop.add(self._local_sock, eventloop.POLL_IN | eventloop.POLL_ERR, self)
         self._fd_to_handlers[conn[0].fileno()] = self
 
+        logging.info("本地fileno" + str(self._local_sock.fileno()))
+
         addr = (SOCKS5_SERVER_IP, SOCKS5_SERVER_PORT)
         self._remote_sock = self.create_remote_sock(addr)
         if self._remote_sock:
             self._loop.add(self._remote_sock, eventloop.POLL_OUT | eventloop.POLL_ERR, self)
             self._fd_to_handlers[self._remote_sock.fileno()] = self
+            logging.info("远程fileno" + str(self._remote_sock.fileno()))
         else:
             logging.warning("连接remote_sock失败")
             self.destroy()
@@ -95,8 +99,15 @@ class Tcprelay(object):
                 self.on_handle_init_remote_connected(sock)
                 return
             else:
-                # 消息未一次性发送成功的
-                self.write_to_sock(b'',sock)
+                data = None
+                if sock == self._local_sock:
+                    logging.info("local_sock准备好了fileno:" + str(self._local_sock.fileno()))
+                    self._local_write_lock = False
+                    data = b''.join(self._data_to_write_to_local)
+                else:
+                    data = b''.join(self._data_to_write_to_remote)
+                self.write_to_sock(data, sock)
+                return
         else:
             logging.warning("tcprelay接收不相关的socket" + str(sock.fileno()))
             self.destroy()
@@ -127,7 +138,7 @@ class Tcprelay(object):
                 self.destroy()
                 return
         except(OSError, IOError) as e:
-            logging.warning("接收数据时发生错误")
+            logging.warning("接收数据时发生错误fileno:" + str(self._local_sock.fileno()) + str(e))
             self.destroy()
             return
         if self._stage == STAGE_CONNECTED:
@@ -158,27 +169,38 @@ class Tcprelay(object):
 
     # 发送
     def write_to_sock(self, data, sock):
-        if sock == self._local_sock:
-            if self._data_to_write_to_local:
-                self._data_to_write_to_local.append(data)
-                # data = b''.join(self._data_to_write_to_local)
-                # self._data_to_write_to_local = []
-                return False
-        elif sock == self._remote_sock:
-            if self._data_to_write_to_remote:
-                self._data_to_write_to_remote.append(data)
-                # data = b''.join(self._data_to_write_to_remote)
-                # self._data_to_write_to_remote = []
-                return False
-
+        # if sock == self._local_sock:
+        #     if self._data_to_write_to_local:
+        #         self._data_to_write_to_local.append(data)
+        #         # data = b''.join(self._data_to_write_to_local)
+        #         # self._data_to_write_to_local = []
+        #         return False
+        # elif sock == self._remote_sock:
+        #     if self._data_to_write_to_remote:
+        #         self._data_to_write_to_remote.append(data)
+        #         # data = b''.join(self._data_to_write_to_remote)
+        #         # self._data_to_write_to_remote = []
+        #         return False
         incomplete = False
+
+        if len(data) == 0:
+            self._loop.clear_w(sock.fileno())
+            logging.info("需发送的都清空了")
+            return True
+        if (sock == self._local_sock) and (self._local_write_lock is True):
+            self._data_to_write_to_local.append(data)
+            self._loop.add(self._local_sock, eventloop.POLL_OUT, self)
+            return False
         try:
             data_length = len(data)
             send_length = sock.send(data)
             data = data[send_length:]
             if send_length == data_length:
                 self._loop.clear_w(sock.fileno())
-                logging.info("发送成功，fileno:"+str(sock.fileno()))
+                if sock == self._local_sock:
+                    self._data_to_write_to_local = []
+                logging.info("发送成功，fileno:" + str(sock.fileno()))
+                self._loop.clear_w(sock.fileno())
                 return True
             else:
                 logging.warning("未一次性发送完全")
@@ -196,25 +218,18 @@ class Tcprelay(object):
                 self.destroy()
                 return False
         if incomplete:
-            logging.warning("发送失败，fileno:"+str(sock.fileno()))
+            logging.warning("下次一定fileno:" + str(sock.fileno()))
+
             if sock == self._local_sock:
+                self._local_write_lock = True
                 self._data_to_write_to_local.append(data)
                 self._loop.add(self._local_sock, eventloop.POLL_OUT, self)
-                # self._update_stream(STREAM_DOWN, WAIT_STATUS_WRITING)
             elif sock == self._remote_sock:
                 self._data_to_write_to_remote.append(data)
                 self._loop.add(self._remote_sock, eventloop.POLL_OUT, self)
-                # self._update_stream(STREAM_UP, WAIT_STATUS_WRITING)
             else:
                 logging.error('write_all_to_sock:unknown socket')
-        # else:
-        #     if sock == self._local_sock:
-        #         self._update_stream(STREAM_DOWN, WAIT_STATUS_READING)
-        #     elif sock == self._remote_sock:
-        #         self._update_stream(STREAM_UP, WAIT_STATUS_READING)
-        #     else:
-        #         logging.error('write_all_to_sock:unknown socket')
-        return False
+            return False
 
     def _update_stream(self, stream, status):
         # update a stream to a new waiting status
@@ -266,8 +281,7 @@ class Tcprelay(object):
                 self.on_judge_connected(data)
                 return
             if self._stage == STAGE_CONNECTED:
-                if not self.write_to_sock(data, self._local_sock):
-                    logging.warning("STAGE_CONNECTED发送失败了")
+                self.write_to_sock(data, self._local_sock)
                 return
 
         else:
